@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function Home() {
@@ -13,6 +13,11 @@ export default function Home() {
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
   const [done, setDone] = useState<{ charName: string; code: string } | null>(null);
+  useEffect(() => {
+  fetch("/api/auth/me").then(r => r.json()).then(d => {
+    if (d.user) router.push("/vote");
+  });
+}, [router]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();

@@ -5,8 +5,10 @@ const globalForDb = global as unknown as { _db?: Database.Database };
 
 export function getDb(): Database.Database {
   if (!globalForDb._db) {
-    const db = new Database(path.join(process.cwd(), 'transmog.db'));
-    db.pragma('journal_mode = WAL');
+const dbPath = process.env.NODE_ENV === 'production'
+  ? '/app/data/transmog.db'
+  : path.join(process.cwd(), 'transmog.db');
+const db = new Database(dbPath);    db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     db.exec(`
       CREATE TABLE IF NOT EXISTS users (

@@ -170,9 +170,6 @@ export default function ResultsPage() {
         </div>
       </main>
 
-      <footer className="border-t border-[#221d14] py-4 text-center text-[#3d3020] text-xs">
-        Fnatics Guild · Firestorm WoW
-      </footer>
     </div>
   );
 }

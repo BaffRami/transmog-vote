@@ -93,7 +93,7 @@ export default function Home() {
       {/* Big title on top */}
       <div style={{ textAlign: "center", marginBottom: "3rem" }}>
         <div style={{ fontSize: "2rem", color: "#6b5a3e", textTransform: "uppercase", letterSpacing: "0.2em", marginBottom: "0.5rem" , marginTop: "3rem" }}>
-          Fnatics
+          Fanatics
         </div>
         <h1 style={{ fontFamily: "Cinzel Decorative, Cinzel, serif", color: "#f5c518", fontSize: "clamp(1.8rem, 5vw, 3.5rem)", fontWeight: 900, letterSpacing: "0.05em", margin: 0 }}>
           ⚔ Transmog Competition ⚔
@@ -184,7 +184,7 @@ export default function Home() {
             style={{ width: "clamp(120px, 20vw, 220px)", opacity: 0.9, filter: "drop-shadow(0 0 20px rgba(200,150,12,0.3))" }}
           />
           <div style={{ color: "#4a3720", fontSize: "0.65rem", textTransform: "uppercase", letterSpacing: "0.15em" }}>
-            Fnatics
+            Fanatics
           </div>
         </div>
 

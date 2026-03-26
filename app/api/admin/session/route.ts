@@ -18,7 +18,7 @@ export async function GET() {
     FROM voting_sessions vs
     JOIN users u ON u.id = vs.contestant_id
     WHERE vs.is_open = 1 LIMIT 1
-  `).get();
+  `).get() as any;
 
   const completed = db.prepare(`
     SELECT vs.id, u.char_name, vs.opened_at, vs.closed_at,
@@ -32,14 +32,23 @@ export async function GET() {
     ORDER BY avg_score DESC
   `).all();
 
-  // Only show players who haven't had a session yet
   const eligible = db.prepare(`
     SELECT id, char_name FROM users
     WHERE voting_enabled = 1
     ORDER BY char_name
   `).all();
 
-  return NextResponse.json({ active: active || null, completed, eligible });
+  const notVotedYet = active ? db.prepare(`
+    SELECT u.char_name FROM users u
+    WHERE u.voting_enabled = 1
+      AND u.id != ?
+      AND u.id NOT IN (
+        SELECT voter_id FROM votes WHERE session_id = ?
+      )
+    ORDER BY u.char_name
+  `).all(active.contestant_id, active.id) : [];
+
+  return NextResponse.json({ active: active || null, completed, eligible, notVotedYet });
 }
 
 export async function POST(req: NextRequest) {
@@ -57,7 +66,6 @@ export async function POST(req: NextRequest) {
   ).get(contestantId) as any;
 
   if (existing) {
-    // Always allow reopen — existing votes are kept, nobody can vote twice
     db.prepare("UPDATE voting_sessions SET is_open = 1, closed_at = NULL, opened_at = datetime('now') WHERE id = ?").run(existing.id);
     return NextResponse.json({ ok: true });
   }
@@ -65,6 +73,7 @@ export async function POST(req: NextRequest) {
   db.prepare('INSERT INTO voting_sessions (contestant_id) VALUES (?)').run(contestantId);
   return NextResponse.json({ ok: true });
 }
+
 export async function DELETE() {
   if (!await isAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const db = getDb();

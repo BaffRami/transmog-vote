@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 
-interface Player { id: number; char_name: string; code: string; voting_enabled: number; reset_requested: number; created_at: string; }interface ActiveSession { id: number; contestant_id: number; char_name: string; opened_at: string; vote_count: number; avg_score: number | null; }
+interface Player { id: number; char_name: string; code: string; voting_enabled: number; reset_requested: number; created_at: string; }
+interface ActiveSession { id: number; contestant_id: number; char_name: string; opened_at: string; vote_count: number; avg_score: number | null; }
 interface CompletedSession { id: number; char_name: string; vote_count: number; avg_score: number | null; }
 
 export default function AdminPage() {
@@ -14,11 +15,13 @@ export default function AdminPage() {
   const [active, setActive] = useState<ActiveSession | null>(null);
   const [completed, setCompleted] = useState<CompletedSession[]>([]);
   const [eligible, setEligible] = useState<{id:number;char_name:string}[]>([]);
+  const [notVotedYet, setNotVotedYet] = useState<{char_name:string}[]>([]);
   const [pick, setPick] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [voteDetails, setVoteDetails] = useState<Record<number, {voter_name: string; score: number; voted_at: string}[]>>({});
+
   async function login(e: React.FormEvent) {
     e.preventDefault(); setLoginErr("");
     const res = await fetch("/api/admin/login", {
@@ -42,6 +45,7 @@ export default function AdminPage() {
     setActive(d.active || null);
     setCompleted(d.completed || []);
     setEligible(d.eligible || []);
+    setNotVotedYet(d.notVotedYet || []);
   }, []);
 
   useEffect(() => {
@@ -101,9 +105,9 @@ export default function AdminPage() {
   );
 
   const TABS = [
-    { key: "players", label: "Players" },
-    { key: "session", label: "Session" },
-    { key: "results", label: "Results" },
+    { key: "players", label: `⚔ Players (${players.length})` },
+    { key: "session", label: "🗳 Session" },
+    { key: "results", label: "🏆 Results" },
   ] as const;
 
   return (
@@ -117,7 +121,7 @@ export default function AdminPage() {
         {TABS.map(t => (
           <button key={t.key} className={`tab-btn ${tab === t.key ? "active" : ""}`}
             onClick={() => { setTab(t.key); setMsg(""); setErr(""); }}>
-            {t.key === "players" ? `⚔ Players (${players.length})` : t.key === "session" ? "🗳 Session" : "🏆 Results"}
+            {t.label}
           </button>
         ))}
       </div>
@@ -132,63 +136,63 @@ export default function AdminPage() {
           )}
           <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
             {players.map(p => (
-  <div key={p.id} className="wow-card" style={{ padding: "0.85rem 1rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontWeight: 700, color: "#e8d5a3", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        {p.char_name}
-        {p.reset_requested ? <span className="badge badge-blue">🔑 Reset Requested</span> : null}
-      </div>
-      <div style={{ fontSize: "0.7rem", color: "#6b5a3e", marginTop: "0.15rem" }}>
-        Code: <span style={{ fontFamily: "monospace", color: "#c8960c", letterSpacing: "0.1em", fontWeight: 700 }}>{p.code}</span>
-        <span style={{ marginLeft: "0.75rem" }}>Registered: {new Date(p.created_at + "Z").toLocaleDateString()}</span>
-      </div>
-      {p.reset_requested ? (
-        <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.5rem", alignItems: "center" }}>
-          <input
-            className="wow-input"
-            placeholder="New password"
-            style={{ maxWidth: 160, padding: "0.25rem 0.5rem", fontSize: "0.75rem" }}
-            id={`pw-${p.id}`}
-          />
-          <button className="wow-btn" style={{ padding: "0.25rem 0.6rem", fontSize: "0.7rem" }}
-            onClick={async () => {
-              const input = document.getElementById(`pw-${p.id}`) as HTMLInputElement;
-              if (!input?.value) return;
-              await fetch("/api/admin/players", {
-                method: "PATCH", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id: p.id, newPassword: input.value }),
-              });
-              input.value = "";
-              loadPlayers();
-            }}>
-            Set Password
-          </button>
-        </div>
-      ) : null}
-    </div>
-    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexShrink: 0 }}>
-      <span className={`badge ${p.voting_enabled ? "badge-green" : "badge-red"}`}>
-        {p.voting_enabled ? "Approved" : "Pending"}
-      </span>
-      <button className={`wow-btn ${p.voting_enabled ? "wow-btn-danger" : ""}`}
-        style={{ padding: "0.25rem 0.6rem", fontSize: "0.7rem" }}
-        onClick={() => toggleVoting(p.id, p.voting_enabled)}>
-        {p.voting_enabled ? "Revoke" : "Approve"}
-      </button>
-      <button className="wow-btn wow-btn-danger" style={{ padding: "0.25rem 0.6rem", fontSize: "0.7rem" }}
-        onClick={async () => {
-          if (!confirm(`Delete ${p.char_name}? This cannot be undone.`)) return;
-          await fetch("/api/admin/players", {
-            method: "DELETE", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: p.id }),
-          });
-          loadPlayers();
-        }}>
-        Delete
-      </button>
-    </div>
-  </div>
-))}
+              <div key={p.id} className="wow-card" style={{ padding: "0.85rem 1rem", display: "flex", alignItems: "center", gap: "1rem" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, color: "#e8d5a3", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    {p.char_name}
+                    {p.reset_requested ? <span className="badge badge-blue">🔑 Reset Requested</span> : null}
+                  </div>
+                  <div style={{ fontSize: "0.7rem", color: "#6b5a3e", marginTop: "0.15rem" }}>
+                    Code: <span style={{ fontFamily: "monospace", color: "#c8960c", letterSpacing: "0.1em", fontWeight: 700 }}>{p.code}</span>
+                    <span style={{ marginLeft: "0.75rem" }}>Registered: {new Date(p.created_at + "Z").toLocaleDateString()}</span>
+                  </div>
+                  {p.reset_requested ? (
+                    <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.5rem", alignItems: "center" }}>
+                      <input
+                        className="wow-input"
+                        placeholder="New password"
+                        style={{ maxWidth: 160, padding: "0.25rem 0.5rem", fontSize: "0.75rem" }}
+                        id={`pw-${p.id}`}
+                      />
+                      <button className="wow-btn" style={{ padding: "0.25rem 0.6rem", fontSize: "0.7rem" }}
+                        onClick={async () => {
+                          const input = document.getElementById(`pw-${p.id}`) as HTMLInputElement;
+                          if (!input?.value) return;
+                          await fetch("/api/admin/players", {
+                            method: "PATCH", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ id: p.id, newPassword: input.value }),
+                          });
+                          input.value = "";
+                          loadPlayers();
+                        }}>
+                        Set Password
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexShrink: 0 }}>
+                  <span className={`badge ${p.voting_enabled ? "badge-green" : "badge-red"}`}>
+                    {p.voting_enabled ? "Approved" : "Pending"}
+                  </span>
+                  <button className={`wow-btn ${p.voting_enabled ? "wow-btn-danger" : ""}`}
+                    style={{ padding: "0.25rem 0.6rem", fontSize: "0.7rem" }}
+                    onClick={() => toggleVoting(p.id, p.voting_enabled)}>
+                    {p.voting_enabled ? "Revoke" : "Approve"}
+                  </button>
+                  <button className="wow-btn wow-btn-danger" style={{ padding: "0.25rem 0.6rem", fontSize: "0.7rem" }}
+                    onClick={async () => {
+                      if (!confirm(`Delete ${p.char_name}? This cannot be undone.`)) return;
+                      await fetch("/api/admin/players", {
+                        method: "DELETE", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id: p.id }),
+                      });
+                      loadPlayers();
+                    }}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -197,21 +201,55 @@ export default function AdminPage() {
       {tab === "session" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "1rem", maxWidth: 540 }}>
           {active ? (
-            <div className="wow-card live-pulse" style={{ padding: "1.5rem", borderColor: "#c8960c" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <div style={{ fontSize: "0.6rem", color: "#6b5a3e", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: "0.25rem" }}>Active Session</div>
-                  <div style={{ fontSize: "1.6rem", fontWeight: 700, color: "#f5c518" }}>{active.char_name}</div>
-                  <div style={{ fontSize: "0.8rem", color: "#b8a87a", marginTop: "0.25rem" }}>
-                    {active.vote_count} vote{active.vote_count !== 1 ? "s" : ""} cast
-                    {active.avg_score != null && <span> · Avg so far: {Number(active.avg_score).toFixed(2)}/10</span>}
+            <>
+              <div className="wow-card live-pulse" style={{ padding: "1.5rem", borderColor: "#c8960c" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: "0.6rem", color: "#6b5a3e", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: "0.25rem" }}>Active Session</div>
+                    <div style={{ fontSize: "1.6rem", fontWeight: 700, color: "#f5c518" }}>{active.char_name}</div>
+                    <div style={{ fontSize: "0.8rem", color: "#b8a87a", marginTop: "0.25rem" }}>
+                      {active.vote_count} vote{active.vote_count !== 1 ? "s" : ""} cast
+                      {active.avg_score != null && <span> · Avg so far: {Number(active.avg_score).toFixed(2)}/10</span>}
+                    </div>
+                  </div>
+                  <span className="badge badge-green">LIVE</span>
+                </div>
+                <hr className="divider" />
+                <button className="wow-btn wow-btn-danger" onClick={closeSession}>Close Voting</button>
+              </div>
+
+              {/* Not voted yet */}
+              {notVotedYet.length > 0 && (
+                <div className="wow-card" style={{ padding: "1.25rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                    <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "#b8a87a", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                      Waiting to Vote
+                    </div>
+                    <span className="badge badge-red">{notVotedYet.length} remaining</span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                    {notVotedYet.map((p) => (
+                      <span key={p.char_name} style={{
+                        padding: "0.25rem 0.6rem",
+                        background: "#080604",
+                        border: "1px solid #2a1f10",
+                        borderRadius: 2,
+                        fontSize: "0.75rem",
+                        color: "#b8a87a",
+                      }}>
+                        {p.char_name}
+                      </span>
+                    ))}
                   </div>
                 </div>
-                <span className="badge badge-green">LIVE</span>
-              </div>
-              <hr className="divider" />
-              <button className="wow-btn wow-btn-danger" onClick={closeSession}>Close Voting</button>
-            </div>
+              )}
+
+              {notVotedYet.length === 0 && active.vote_count > 0 && (
+                <div className="wow-card" style={{ padding: "1rem 1.25rem", textAlign: "center" }}>
+                  <span style={{ color: "#4ade80", fontSize: "0.85rem" }}>✅ Everyone has voted!</span>
+                </div>
+              )}
+            </>
           ) : (
             <div className="wow-card" style={{ padding: "1.25rem", textAlign: "center" }}>
               <p style={{ color: "#6b5a3e", fontSize: "0.85rem" }}>No active session</p>
@@ -242,98 +280,98 @@ export default function AdminPage() {
 
       {/* RESULTS TAB */}
       {tab === "results" && (
-  <div>
-    {completed.length === 0 && (
-      <div className="wow-card" style={{ padding: "2rem", textAlign: "center" }}>
-        <p style={{ color: "#6b5a3e" }}>No completed sessions yet.</p>
-      </div>
-    )}
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-      {completed.map((s, i) => (
-        <div key={s.id}>
-          <div
-            className="wow-card"
-            style={{
-              padding: "0.85rem 1rem",
-              display: "flex",
-              alignItems: "center",
-              gap: "1rem",
-              cursor: "pointer",
-              borderColor: expanded === s.id ? "#c8960c" : undefined,
-              transition: "border-color 0.15s",
-            }}
-            onClick={async () => {
-              if (expanded === s.id) { setExpanded(null); return; }
-              setExpanded(s.id);
-              if (!voteDetails[s.id]) {
-                const res = await fetch(`/api/admin/results?sessionId=${s.id}`);
-                const data = await res.json();
-                setVoteDetails(prev => ({ ...prev, [s.id]: data.votes || [] }));
-              }
-            }}
-          >
-            <div style={{ width: "2rem", textAlign: "center", fontSize: "1.3rem" }}>
-              {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : <span style={{ color: "#4a3720", fontSize: "0.8rem" }}>#{i + 1}</span>}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, color: "#e8d5a3" }}>{s.char_name}</div>
-              <div style={{ fontSize: "0.7rem", color: "#6b5a3e" }}>{s.vote_count} vote{s.vote_count !== 1 ? "s" : ""}</div>
-            </div>
-            <div style={{ fontSize: "1.8rem", fontWeight: 900, color: i === 0 ? "#ffd700" : i === 1 ? "#c0c0c0" : i === 2 ? "#cd7f32" : "#b8a87a" }}>
-              {s.avg_score != null ? Number(s.avg_score).toFixed(2) : "—"}
-              <span style={{ fontSize: "0.8rem", fontWeight: 400, color: "#4a3720" }}>/10</span>
-            </div>
-            <div style={{ color: "#4a3720", fontSize: "0.8rem", marginLeft: "0.5rem" }}>
-              {expanded === s.id ? "▲" : "▼"}
-            </div>
-          </div>
-
-          {expanded === s.id && (
-            <div className="wow-card" style={{
-              borderTop: "none",
-              borderRadius: "0 0 4px 4px",
-              padding: "0.75rem 1rem",
-              marginTop: "-0.6rem",
-              paddingTop: "1rem",
-            }}>
-              {!voteDetails[s.id] ? (
-                <div style={{ color: "#4a3720", fontSize: "0.8rem", textAlign: "center", padding: "0.5rem" }}>Loading...</div>
-              ) : voteDetails[s.id].length === 0 ? (
-                <div style={{ color: "#4a3720", fontSize: "0.8rem", textAlign: "center", padding: "0.5rem" }}>No votes cast.</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-                  {voteDetails[s.id].map((v, vi) => (
-                    <div key={vi} style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "0.4rem 0.75rem",
-                      background: "#080604",
-                      borderRadius: "2px",
-                      border: "1px solid #2a1f10",
-                    }}>
-                      <span style={{ color: "#b8a87a", fontSize: "0.85rem" }}>{v.voter_name}</span>
-                      <span style={{
-                        fontWeight: 900,
-                        fontSize: "1.1rem",
-                        color: v.score >= 8 ? "#4ade80" : v.score >= 5 ? "#f5c518" : "#ef4444",
-                      }}>
-                        {v.score}<span style={{ fontSize: "0.7rem", color: "#4a3720", fontWeight: 400 }}>/10</span>
-                      </span>
-                    </div>
-                  ))}
-                  <div style={{ textAlign: "right", fontSize: "0.65rem", color: "#2a1f10", marginTop: "0.25rem" }}>
-                    Click row again to collapse
-                  </div>
-                </div>
-              )}
+        <div>
+          {completed.length === 0 && (
+            <div className="wow-card" style={{ padding: "2rem", textAlign: "center" }}>
+              <p style={{ color: "#6b5a3e" }}>No completed sessions yet.</p>
             </div>
           )}
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            {completed.map((s, i) => (
+              <div key={s.id}>
+                <div
+                  className="wow-card"
+                  style={{
+                    padding: "0.85rem 1rem",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "1rem",
+                    cursor: "pointer",
+                    borderColor: expanded === s.id ? "#c8960c" : undefined,
+                    transition: "border-color 0.15s",
+                  }}
+                  onClick={async () => {
+                    if (expanded === s.id) { setExpanded(null); return; }
+                    setExpanded(s.id);
+                    if (!voteDetails[s.id]) {
+                      const res = await fetch(`/api/admin/results?sessionId=${s.id}`);
+                      const data = await res.json();
+                      setVoteDetails(prev => ({ ...prev, [s.id]: data.votes || [] }));
+                    }
+                  }}
+                >
+                  <div style={{ width: "2rem", textAlign: "center", fontSize: "1.3rem" }}>
+                    {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : <span style={{ color: "#4a3720", fontSize: "0.8rem" }}>#{i+1}</span>}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, color: "#e8d5a3" }}>{s.char_name}</div>
+                    <div style={{ fontSize: "0.7rem", color: "#6b5a3e" }}>{s.vote_count} vote{s.vote_count !== 1 ? "s" : ""}</div>
+                  </div>
+                  <div style={{ fontSize: "1.8rem", fontWeight: 900, color: i === 0 ? "#ffd700" : i === 1 ? "#c0c0c0" : i === 2 ? "#cd7f32" : "#b8a87a" }}>
+                    {s.avg_score != null ? Number(s.avg_score).toFixed(2) : "—"}
+                    <span style={{ fontSize: "0.8rem", fontWeight: 400, color: "#4a3720" }}>/10</span>
+                  </div>
+                  <div style={{ color: "#4a3720", fontSize: "0.8rem", marginLeft: "0.5rem" }}>
+                    {expanded === s.id ? "▲" : "▼"}
+                  </div>
+                </div>
+
+                {expanded === s.id && (
+                  <div className="wow-card" style={{
+                    borderTop: "none",
+                    borderRadius: "0 0 4px 4px",
+                    padding: "0.75rem 1rem",
+                    marginTop: "-0.6rem",
+                    paddingTop: "1rem",
+                  }}>
+                    {!voteDetails[s.id] ? (
+                      <div style={{ color: "#4a3720", fontSize: "0.8rem", textAlign: "center", padding: "0.5rem" }}>Loading...</div>
+                    ) : voteDetails[s.id].length === 0 ? (
+                      <div style={{ color: "#4a3720", fontSize: "0.8rem", textAlign: "center", padding: "0.5rem" }}>No votes cast.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                        {voteDetails[s.id].map((v, vi) => (
+                          <div key={vi} style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            padding: "0.4rem 0.75rem",
+                            background: "#080604",
+                            borderRadius: "2px",
+                            border: "1px solid #2a1f10",
+                          }}>
+                            <span style={{ color: "#b8a87a", fontSize: "0.85rem" }}>{v.voter_name}</span>
+                            <span style={{
+                              fontWeight: 900,
+                              fontSize: "1.1rem",
+                              color: v.score >= 8 ? "#4ade80" : v.score >= 5 ? "#f5c518" : "#ef4444",
+                            }}>
+                              {v.score}<span style={{ fontSize: "0.7rem", color: "#4a3720", fontWeight: 400 }}>/10</span>
+                            </span>
+                          </div>
+                        ))}
+                        <div style={{ textAlign: "right", fontSize: "0.65rem", color: "#2a1f10", marginTop: "0.25rem" }}>
+                          Click row again to collapse
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
-      ))}
-    </div>
-  </div>
-)}
+      )}
     </div>
   );
 }

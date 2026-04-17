@@ -6,7 +6,7 @@ const globalForDb = global as unknown as { _db?: Database.Database };
 
 export function getDb(): Database.Database {
   if (!globalForDb._db) {
-    const dir = process.env.NODE_ENV === 'production' ? '/data' : process.cwd();
+    const dir = process.env.NODE_ENV === 'production' ? '/app/data' : process.cwd();
     fs.mkdirSync(dir, { recursive: true });
     const dbPath = path.join(dir, 'transmog.db');
 
@@ -47,10 +47,14 @@ export function getDb(): Database.Database {
       );
     `);
 
-    // Ensure votes.revote_count exists on older DBs
-    const cols = db.prepare(`PRAGMA table_info('votes')`).all() as any[];
-    if (!cols.some(c => c.name === 'revote_count')) {
+    // Migrations for existing DBs
+    const voteCols = db.prepare(`PRAGMA table_info('votes')`).all() as any[];
+    if (!voteCols.some(c => c.name === 'revote_count')) {
       db.exec(`ALTER TABLE votes ADD COLUMN revote_count INTEGER NOT NULL DEFAULT 0`);
+    }
+    const userCols = db.prepare(`PRAGMA table_info('users')`).all() as any[];
+    if (!userCols.some(c => c.name === 'revotes_remaining')) {
+      db.exec(`ALTER TABLE users ADD COLUMN revotes_remaining INTEGER NOT NULL DEFAULT 3`);
     }
 
     globalForDb._db = db;

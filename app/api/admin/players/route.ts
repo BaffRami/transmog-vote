@@ -51,3 +51,23 @@ export async function DELETE(req: NextRequest) {
 
   return NextResponse.json({ ok: true });
 }
+
+export async function PUT(req: NextRequest) {
+  if (!await isAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const { action } = await req.json();
+  const db = getDb();
+
+  if (action === 'reset') {
+    db.prepare('DELETE FROM votes').run();
+    db.prepare('DELETE FROM voting_sessions').run();
+    db.prepare('UPDATE users SET voting_enabled = 0').run();
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'disapprove_all') {
+    db.prepare('UPDATE users SET voting_enabled = 0').run();
+    return NextResponse.json({ ok: true });
+  }
+
+  return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+}

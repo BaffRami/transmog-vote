@@ -25,12 +25,21 @@ export async function POST(req: NextRequest) {
   if (active.contestant_id === userId)
     return NextResponse.json({ error: "You can't vote for yourself" }, { status: 403 });
 
-  try {
-    db.prepare('INSERT INTO votes (voter_id, session_id, score) VALUES (?, ?, ?)').run(userId, sessionId, Math.round(score));
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    if (e.message?.includes('UNIQUE'))
-      return NextResponse.json({ error: 'Already voted in this session' }, { status: 409 });
-    throw e;
+  const existing = db.prepare(
+    'SELECT id, revote_count FROM votes WHERE voter_id = ? AND session_id = ?'
+  ).get(userId, sessionId) as any;
+
+  if (existing) {
+    if (existing.revote_count >= 3)
+      return NextResponse.json({ error: 'You have used all 3 revotes for this contestant' }, { status: 403 });
+    db.prepare(
+      'UPDATE votes SET score = ?, revote_count = revote_count + 1, voted_at = datetime(\'now\') WHERE id = ?'
+    ).run(Math.round(score), existing.id);
+    return NextResponse.json({ ok: true, revotesLeft: 3 - (existing.revote_count + 1) });
   }
+
+  db.prepare(
+    'INSERT INTO votes (voter_id, session_id, score) VALUES (?, ?, ?)'
+  ).run(userId, sessionId, Math.round(score));
+  return NextResponse.json({ ok: true, revotesLeft: 3 });
 }

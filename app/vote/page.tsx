@@ -4,10 +4,11 @@ import { useRouter } from "next/navigation";
 
 interface VoteSession {
   id: number; contestantId: number; contestantName: string;
-  voteCount: number; isContestant: boolean; alreadyVoted: boolean; myScore: number | null;
+  voteCount: number; isContestant: boolean; alreadyVoted: boolean;
+  myScore: number | null; revotesLeft: number;
 }
-
 interface Progress { rated: number; total: number; }
+interface RecapEntry { contestant_name: string; score: number; revote_count: number; }
 
 const FLAVOR_TEXTS = [
   "Sharpen your judgment, champion.",
@@ -26,27 +27,139 @@ const scoreColor = (n: number) => {
   return '#4ade80';
 };
 
+async function safeJson(res: Response) {
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function RecapRow({ entry, revotesLeft, onRevote }: {
+  entry: RecapEntry;
+  revotesLeft: number;
+  onRevote: (score: number) => Promise<string | null>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function submit() {
+    if (!selected) return;
+    setSubmitting(true); setError(""); setSuccess("");
+    const err = await onRevote(selected);
+    if (err) { setError(err); }
+    else {
+      setSuccess("Vote updated!");
+      setSelected(null);
+      setOpen(false);
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <div>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "0.5rem 0.75rem", background: "#080604",
+        border: "1px solid #2a1f10", borderRadius: 2,
+      }}>
+        <span style={{ color: "#b8a87a", fontSize: "0.85rem" }}>{entry.contestant_name}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          {revotesLeft > 0 && (
+            <button
+              className="wow-btn wow-btn-ghost"
+              style={{ padding: "0.15rem 0.5rem", fontSize: "0.6rem" }}
+              onClick={() => { setOpen(!open); setError(""); setSuccess(""); setSelected(null); }}
+            >
+              {open ? "Cancel" : `Change (${revotesLeft} left)`}
+            </button>
+          )}
+          {revotesLeft === 0 && (
+            <span style={{ fontSize: "0.6rem", color: "#4a3720" }}>No revotes left</span>
+          )}
+          <span style={{ fontWeight: 900, fontSize: "1.1rem", color: scoreColor(entry.score) }}>
+            {entry.score}<span style={{ fontSize: "0.7rem", color: "#4a3720", fontWeight: 400 }}>/10</span>
+          </span>
+        </div>
+      </div>
+
+      {open && (
+        <div style={{
+          padding: "0.75rem", background: "#080604",
+          border: "1px solid #2a1f10", borderTop: "none",
+          borderRadius: "0 0 2px 2px",
+        }}>
+          <div style={{ display: "flex", justifyContent: "center", gap: "0.35rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+            {[1,2,3,4,5,6,7,8,9,10].map(n => (
+              <button
+                key={n}
+                onClick={() => setSelected(n)}
+                style={{
+                  width: "2.4rem", height: "2.4rem",
+                  border: selected === n ? `2px solid ${scoreColor(n)}` : "1px solid #2a1f10",
+                  background: selected === n ? `${scoreColor(n)}22` : "#0f0d0b",
+                  color: selected === n ? scoreColor(n) : "#6b5a3e",
+                  fontFamily: "Cinzel, serif", fontWeight: 700, fontSize: "0.85rem",
+                  cursor: "pointer", borderRadius: 2, transition: "all 0.12s",
+                }}
+              >{n}</button>
+            ))}
+          </div>
+          {error && <div className="alert-error" style={{ marginBottom: "0.5rem", fontSize: "0.75rem" }}>{error}</div>}
+          {success && <div className="alert-success" style={{ marginBottom: "0.5rem", fontSize: "0.75rem" }}>{success}</div>}
+          <div style={{ textAlign: "center" }}>
+            <button className="wow-btn" style={{ padding: "0.4rem 1.5rem", fontSize: "0.8rem" }}
+              onClick={submit} disabled={!selected || submitting}>
+              {submitting ? "Saving..." : "Confirm Change"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function VotePage() {
   const router = useRouter();
   const [charName, setCharName] = useState("");
   const [userCode, setUserCode] = useState("");
   const [session, setSession] = useState<VoteSession | null | undefined>(undefined);
   const [progress, setProgress] = useState<Progress>({ rated: 0, total: 0 });
+  const [myRecap, setMyRecap] = useState<RecapEntry[]>([]);
   const [votingEnabled, setVotingEnabled] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [showCode, setShowCode] = useState(false);
+  const [showRecap, setShowRecap] = useState(false);
   const [flavor] = useState(() => FLAVOR_TEXTS[Math.floor(Math.random() * FLAVOR_TEXTS.length)]);
+  const [revotesLeft, setRevotesLeft] = useState(3);
 
   const fetchCurrent = useCallback(async () => {
-    const res = await fetch("/api/vote/current");
-    if (res.status === 401) { router.push("/"); return; }
-    const data = await res.json();
-    setSession(data.session);
-    setVotingEnabled(data.votingEnabled);
-    if (data.progress) setProgress(data.progress);
-    setError("");
+    try {
+      const res = await fetch("/api/vote/current");
+
+      if (res.status === 401) {
+        router.push("/");
+        return;
+      }
+
+      const data = await safeJson(res);
+      if (!data) return;
+
+      setSession(data.session);
+      setVotingEnabled(data.votingEnabled);
+      if (data.myRecap) setMyRecap(data.myRecap);
+      if (typeof data.revotesLeft === "number") setRevotesLeft(data.revotesLeft);
+
+    } catch (err) {
+      console.error(err);
+    }
   }, [router]);
 
   useEffect(() => {
@@ -94,21 +207,18 @@ export default function VotePage() {
 
       {/* Title */}
       <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-        <div style={{ fontSize: "1.5rem", color: "#4a3720", textTransform: "uppercase", letterSpacing: "0.25em", marginBottom: "0.5rem" }}>
-        Fanatics
+        <div style={{ fontSize: "0.65rem", color: "#4a3720", textTransform: "uppercase", letterSpacing: "0.25em", marginBottom: "0.5rem" }}>
+          Firestorm · Fnatics Guild
         </div>
         <h1 style={{
           fontFamily: "Cinzel Decorative, Cinzel, serif",
           color: "#f5c518",
           fontSize: "clamp(1.6rem, 5vw, 2.8rem)",
-          fontWeight: 900,
-          margin: 0,
-          letterSpacing: "0.05em",
+          fontWeight: 900, margin: 0, letterSpacing: "0.05em",
           textShadow: "0 0 30px rgba(200,150,12,0.4), 0 0 60px rgba(200,150,12,0.15)",
         }}>
           ⚔ Transmog Competition ⚔
         </h1>
-        {/* Decorative divider */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.75rem", marginTop: "0.75rem" }}>
           <div style={{ height: 1, width: 60, background: "linear-gradient(to right, transparent, #4a3720)" }} />
           <span style={{ color: "#4a3720", fontSize: "0.7rem" }}>⚔</span>
@@ -120,11 +230,22 @@ export default function VotePage() {
       <div className="wow-card" style={{ padding: "1rem 1.5rem", marginBottom: "1.25rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: "0.55rem", color: "#4a3720", textTransform: "uppercase", letterSpacing: "0.15em" }}>Champion</div>
-          <div style={{ color: "#f5c518", fontWeight: 700, fontSize: "1.2rem", letterSpacing: "0.03em" }}>{charName}</div>
+          <div style={{ color: "#f5c518", fontWeight: 700, fontSize: "1.2rem" }}>{charName}</div>
         </div>
-        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
           {!votingEnabled && <span className="badge badge-red">Awaiting Approval</span>}
           {votingEnabled && <span className="badge badge-green">Voter</span>}
+          {votingEnabled && (
+  <span className="badge badge-gold" style={{ fontSize: "0.6rem" }}>
+    {revotesLeft} revote{revotesLeft !== 1 ? "s" : ""} left
+  </span>
+)}
+          {myRecap.length > 0 && (
+            <button className="wow-btn wow-btn-ghost" style={{ padding: "0.25rem 0.6rem", fontSize: "0.65rem" }}
+              onClick={() => setShowRecap(!showRecap)}>
+              {showRecap ? "Hide Recap" : `My Votes (${myRecap.length})`}
+            </button>
+          )}
           <button className="wow-btn wow-btn-ghost" style={{ padding: "0.25rem 0.6rem", fontSize: "0.65rem" }}
             onClick={() => setShowCode(!showCode)}>
             {showCode ? "Hide Code" : "My Code"}
@@ -145,6 +266,36 @@ export default function VotePage() {
         </div>
       )}
 
+      {/* Recap */}
+      {showRecap && myRecap.length > 0 && (
+        <div className="wow-card" style={{ padding: "1.25rem", marginBottom: "1.25rem" }}>
+          <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "#b8a87a", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "0.75rem" }}>
+            My Votes So Far
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {myRecap.map((r, i) => (
+              <RecapRow
+                key={i}
+                entry={r}
+                revotesLeft={revotesLeft}
+                onRevote={async (newScore) => {
+                  const res = await fetch("/api/vote/revote", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ contestantName: r.contestant_name, score: newScore }),
+                  });
+                  const data = await safeJson(res);
+                  await fetchCurrent();
+                  if (!res.ok) return data.error as string;
+                  await fetchCurrent();
+                  return null;
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Progress bar */}
       {progress.total > 0 && (
         <div className="wow-card" style={{ padding: "0.85rem 1.5rem", marginBottom: "1.25rem" }}>
@@ -158,11 +309,9 @@ export default function VotePage() {
           </div>
           <div style={{ height: 6, background: "#0f0d0b", borderRadius: 3, border: "1px solid #2a1f10", overflow: "hidden" }}>
             <div style={{
-              height: "100%",
-              width: `${progressPct}%`,
+              height: "100%", width: `${progressPct}%`,
               background: "linear-gradient(90deg, #8a6700, #f5c518)",
-              borderRadius: 3,
-              transition: "width 0.6s ease",
+              borderRadius: 3, transition: "width 0.6s ease",
             }} />
           </div>
         </div>
@@ -226,15 +375,20 @@ export default function VotePage() {
           <p style={{ color: "#b8a87a", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
             You rated <strong style={{ color: "#f5c518" }}>{session.contestantName}</strong>:
           </p>
-          <div style={{ marginBottom: "1.5rem" }}>
+          <div style={{ marginBottom: "1rem" }}>
             <span style={{ fontSize: "5.5rem", fontWeight: 900, color: "#f5c518", lineHeight: 1, textShadow: "0 0 30px rgba(245,197,24,0.4)" }}>
               {session.myScore}
             </span>
             <span style={{ fontSize: "2rem", color: "#4a3720" }}>/10</span>
           </div>
-          <p style={{ color: "#6b5a3e", fontSize: "0.8rem", fontStyle: "italic" }}>
+          <p style={{ color: "#6b5a3e", fontSize: "0.8rem", fontStyle: "italic", marginBottom: "0.5rem" }}>
             Waiting for the next contestant...
           </p>
+          {session.revotesLeft > 0 && (
+            <p style={{ color: "#4a3720", fontSize: "0.7rem" }}>
+              Want to change your vote? Open <strong style={{ color: "#6b5a3e" }}>My Votes</strong> above.
+            </p>
+          )}
         </div>
       )}
 
@@ -252,61 +406,40 @@ export default function VotePage() {
               {session.voteCount} vote{session.voteCount !== 1 ? "s" : ""} cast
             </div>
           </div>
-
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem", marginBottom: "2rem" }}>
             <div style={{ height: 1, flex: 1, background: "linear-gradient(to right, transparent, #2a1f10)" }} />
             <span style={{ color: "#2a1f10", fontSize: "0.7rem" }}>⚔</span>
             <div style={{ height: 1, flex: 1, background: "linear-gradient(to left, transparent, #2a1f10)" }} />
           </div>
-
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.1em", color: "#6b5a3e", marginBottom: "1.25rem" }}>
               Rate their transmog — 1 is tragic, 10 is legendary
             </div>
             <div style={{ display: "flex", justifyContent: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1.75rem" }}>
               {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setSelected(n)}
+                <button key={n} onClick={() => setSelected(n)}
                   style={{
-                    width: "3.2rem",
-                    height: "3.2rem",
+                    width: "3.2rem", height: "3.2rem",
                     border: selected === n ? `2px solid ${scoreColor(n)}` : "1px solid #2a1f10",
-                    background: selected === n
-                      ? `${scoreColor(n)}22`
-                      : "#0f0d0b",
+                    background: selected === n ? `${scoreColor(n)}22` : "#0f0d0b",
                     color: selected === n ? scoreColor(n) : "#6b5a3e",
-                    fontFamily: "Cinzel, serif",
-                    fontWeight: 700,
-                    fontSize: "1rem",
-                    cursor: "pointer",
-                    borderRadius: 2,
-                    transition: "all 0.12s",
+                    fontFamily: "Cinzel, serif", fontWeight: 700, fontSize: "1rem",
+                    cursor: "pointer", borderRadius: 2, transition: "all 0.12s",
                     boxShadow: selected === n ? `0 0 12px ${scoreColor(n)}44` : "none",
                   }}
-                >
-                  {n}
-                </button>
+                >{n}</button>
               ))}
             </div>
-
             {selected && (
               <div style={{ marginBottom: "1.25rem" }}>
                 <span style={{ fontSize: "0.85rem", color: "#6b5a3e" }}>Your score: </span>
-                <span style={{ fontSize: "1.6rem", fontWeight: 900, color: scoreColor(selected) }}>
-                  {selected}
-                </span>
+                <span style={{ fontSize: "1.6rem", fontWeight: 900, color: scoreColor(selected) }}>{selected}</span>
                 <span style={{ fontSize: "1rem", color: "#4a3720" }}>/10</span>
               </div>
             )}
-
             {error && <div className="alert-error" style={{ marginBottom: "1rem" }}>{error}</div>}
-            <button
-              className="wow-btn"
-              style={{ padding: "0.75rem 3rem", fontSize: "0.95rem" }}
-              onClick={submitVote}
-              disabled={!selected || submitting}
-            >
+            <button className="wow-btn" style={{ padding: "0.75rem 3rem", fontSize: "0.95rem" }}
+              onClick={submitVote} disabled={!selected || submitting}>
               {submitting ? "Submitting..." : "⚔ Submit Vote ⚔"}
             </button>
           </div>

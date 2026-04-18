@@ -20,7 +20,6 @@ export async function GET() {
     'SELECT COUNT(DISTINCT contestant_id) as c FROM voting_sessions'
   ).get() as any).c;
 
-  // My votes recap — all votes I cast across all sessions
   const myRecap = db.prepare(`
     SELECT u.char_name as contestant_name, v.score, v.revote_count
     FROM votes v
@@ -42,6 +41,7 @@ export async function GET() {
     return NextResponse.json({
       session: null,
       votingEnabled: Boolean(user.voting_enabled),
+      revotesLeft: user.revotes_remaining,
       progress: { rated: ratedContestants, total: totalContestants },
       myRecap,
     });
@@ -52,6 +52,7 @@ export async function GET() {
 
   return NextResponse.json({
     votingEnabled: Boolean(user.voting_enabled),
+    revotesLeft: user.revotes_remaining,
     progress: { rated: ratedContestants, total: totalContestants },
     myRecap,
     session: {
@@ -63,7 +64,6 @@ export async function GET() {
       isContestant: active.contestant_id === userId,
       alreadyVoted: Boolean(myVote),
       myScore: myVote?.score ?? null,
-      revotesLeft: user.revotes_remaining,
     },
   });
 }

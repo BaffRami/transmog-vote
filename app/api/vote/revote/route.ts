@@ -15,13 +15,13 @@ export async function POST(req: NextRequest) {
 
   const db = getDb();
 
-  // Check global revotes remaining
-  const user = db.prepare('SELECT revotes_remaining FROM users WHERE id = ?').get(userId) as any;
+  const user = db.prepare('SELECT revotes_remaining, voting_enabled FROM users WHERE id = ?').get(userId) as any;
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  if (!user.voting_enabled)
+    return NextResponse.json({ error: 'Voting has been closed.' }, { status: 403 });
   if (user.revotes_remaining <= 0)
     return NextResponse.json({ error: 'You have used all 3 of your revotes' }, { status: 403 });
 
-  // Find the session for this contestant
   const vs = db.prepare(`
     SELECT vs.id FROM voting_sessions vs
     JOIN users u ON u.id = vs.contestant_id
@@ -37,7 +37,6 @@ export async function POST(req: NextRequest) {
 
   if (!existing) return NextResponse.json({ error: 'No original vote found' }, { status: 404 });
 
-  // Deduct one global revote and update the score
   db.prepare('UPDATE users SET revotes_remaining = revotes_remaining - 1 WHERE id = ?').run(userId);
   db.prepare("UPDATE votes SET score = ?, voted_at = datetime('now') WHERE id = ?").run(Math.round(score), existing.id);
 

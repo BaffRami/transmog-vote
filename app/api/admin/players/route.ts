@@ -76,7 +76,7 @@ export async function PUT(req: NextRequest) {
       await db.batch([
         'DELETE FROM votes',
         'DELETE FROM voting_sessions',
-        'UPDATE users SET voting_enabled = 0',
+        'UPDATE users SET voting_enabled = 0, revotes_remaining = 3',
       ], 'write');
       return NextResponse.json({ ok: true });
     }

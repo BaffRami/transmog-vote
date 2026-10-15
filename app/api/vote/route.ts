@@ -24,8 +24,11 @@ export async function POST(req: NextRequest) {
       `,
       args: [sessionId]
     });
-    const session = sessionRes.rows as any;
+    
+    // FIX: Grab the first element from the rows array
+    const session = sessionRes.rows[0] as any;
 
+    // Now this condition works perfectly if no row is found!
     if (!session) {
       return NextResponse.json({ error: 'Voting session is not active.' }, { status: 400 });
     }

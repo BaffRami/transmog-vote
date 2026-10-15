@@ -11,13 +11,20 @@ export async function GET(req: NextRequest) {
   if (!sessionId) return NextResponse.json({ error: 'sessionId required' }, { status: 400 });
 
   const db = getDb();
-  const votes = db.prepare(`
-    SELECT u.char_name as voter_name, v.score, v.voted_at
-    FROM votes v
-    JOIN users u ON u.id = v.voter_id
-    WHERE v.session_id = ?
-    ORDER BY v.score DESC
-  `).all(Number(sessionId));
+  
+  // Changed .prepare().all() to await db.execute()
+  const result = await db.execute({
+    sql: `
+      SELECT u.char_name as voter_name, v.score, v.voted_at
+      FROM votes v
+      JOIN users u ON u.id = v.voter_id
+      WHERE v.session_id = ?
+      ORDER BY v.score DESC
+    `,
+    args: [Number(sessionId)]
+  });
+  
+  const votes = result.rows;
 
   return NextResponse.json({ votes });
 }

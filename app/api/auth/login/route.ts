@@ -10,7 +10,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Character name and password are required' }, { status: 400 });
 
     const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE char_name = ?').get(charName.trim()) as any;
+    
+    // Changed .prepare().get() to await db.execute()
+    const result = await db.execute({
+      sql: 'SELECT * FROM users WHERE char_name = ?',
+      args: [charName.trim()]
+    });
+    const user = result.rows[0] as any;
+    
     if (!user || !(await bcrypt.compare(password, user.password_hash)))
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
 

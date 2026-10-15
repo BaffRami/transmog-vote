@@ -8,7 +8,9 @@ export async function GET() {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const db = getDb();
-  const results = db.prepare(`
+  
+  // Changed db.prepare().all() to await db.execute()
+  const queryResult = await db.execute(`
     SELECT u.char_name,
       COUNT(v.id) as vote_count,
       ROUND(AVG(v.score), 2) as avg_score,
@@ -20,6 +22,9 @@ export async function GET() {
     LEFT JOIN votes v ON v.session_id = vs.id
     GROUP BY vs.id
     ORDER BY avg_score DESC NULLS LAST, vote_count DESC
-  `).all();
+  `);
+  
+  const results = queryResult.rows;
+  
   return NextResponse.json({ results });
 }

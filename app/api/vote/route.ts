@@ -14,28 +14,35 @@ export async function POST(req: NextRequest) {
 
     const db = getDb();
 
-    const session = db.prepare(`
-      SELECT vs.id, p.name AS player_name
-      FROM voting_sessions vs
-      JOIN players p ON p.id = vs.player_id
-      WHERE vs.id = ? AND vs.is_active = 1
-    `).get(sessionId) as any;
+    // 1. Fetch active session row via await
+    const sessionRes = await db.execute({
+      sql: `
+        SELECT vs.id, p.name AS player_name
+        FROM voting_sessions vs
+        JOIN players p ON p.id = vs.player_id
+        WHERE vs.id = ? AND vs.is_active = 1
+      `,
+      args: [sessionId]
+    });
+    const session = sessionRes.rows as any;
 
     if (!session) {
       return NextResponse.json({ error: 'Voting session is not active.' }, { status: 400 });
     }
 
     if (voterName.trim().toLowerCase() === session.player_name.toLowerCase()) {
-      return NextResponse.json({ error: "You can\'t vote for yourself!" }, { status: 400 });
+      return NextResponse.json({ error: "You can't vote for yourself!" }, { status: 400 });
     }
 
     try {
-      db.prepare('INSERT INTO votes (session_id, voter_name, score) VALUES (?, ?, ?)').run(
-        sessionId, voterName.trim(), score
-      );
+      // 2. Insert vote via await
+      await db.execute({
+        sql: 'INSERT INTO votes (session_id, voter_name, score) VALUES (?, ?, ?)',
+        args: [sessionId, voterName.trim(), score]
+      });
       return NextResponse.json({ success: true });
     } catch (e: any) {
-      if (e?.message?.includes('UNIQUE constraint')) {
+      if (e?.message?.includes('UNIQUE constraint') || e?.code?.includes('UNIQUE')) {
         return NextResponse.json({ error: 'You already voted for this player!' }, { status: 400 });
       }
       throw e;

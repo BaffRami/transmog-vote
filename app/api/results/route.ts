@@ -7,7 +7,8 @@ export async function GET() {
   try {
     const db = getDb();
 
-    const results = db.prepare(`
+    // 1. Fetch leaderboard statistics via await
+    const queryResult = await db.execute(`
       SELECT
         p.id   AS player_id,
         p.name,
@@ -20,11 +21,14 @@ export async function GET() {
       WHERE vs.is_active = 0
       GROUP BY p.id
       ORDER BY avg_score DESC
-    `).all();
+    `);
+    const results = queryResult.rows;
 
-    const activeSessionCount = (db.prepare(
+    // 2. Fetch the active session count row safely
+    const sessionCheck = await db.execute(
       'SELECT COUNT(*) AS count FROM voting_sessions WHERE is_active = 1'
-    ).get() as any).count;
+    );
+    const activeSessionCount = Number((sessionCheck.rows as any)?.count || 0);
 
     return NextResponse.json({ results, activeSessionCount });
   } catch {

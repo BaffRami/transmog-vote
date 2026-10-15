@@ -9,25 +9,36 @@ export async function GET() {
 
   const userId = Number(session.sub);
   const db = getDb();
-  const user = db.prepare('SELECT voting_enabled FROM users WHERE id = ?').get(userId) as any;
+
+  // 1. Fetch user validation row via await
+  const userRes = await db.execute({
+    sql: 'SELECT voting_enabled FROM users WHERE id = ?',
+    args: [userId]
+  });
+  const user = userRes.rows as any;
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-  // Progress: how many contestants have been voted on (have a session) vs total eligible
-  const totalContestants = (db.prepare(
+  // 2. Fetch total eligible contestants count
+  const totalRes = await db.execute(
     'SELECT COUNT(*) as c FROM users WHERE voting_enabled = 1'
-  ).get() as any).c;
+  );
+  const totalContestants = Number((totalRes.rows as any)?.c || 0);
 
-  const ratedContestants = (db.prepare(
+  // 3. Fetch rated distinct contestants count
+  const ratedRes = await db.execute(
     'SELECT COUNT(DISTINCT contestant_id) as c FROM voting_sessions'
-  ).get() as any).c;
+  );
+  const ratedContestants = Number((ratedRes.rows as any)?.c || 0);
 
-  const active = db.prepare(`
+  // 4. Fetch the single current active session
+  const activeRes = await db.execute(`
     SELECT vs.id, vs.contestant_id, u.char_name as contestant_name, vs.opened_at,
       (SELECT COUNT(*) FROM votes WHERE session_id = vs.id) as vote_count
     FROM voting_sessions vs
     JOIN users u ON u.id = vs.contestant_id
     WHERE vs.is_open = 1 LIMIT 1
-  `).get() as any;
+  `);
+  const active = activeRes.rows as any;
 
   if (!active)
     return NextResponse.json({
@@ -36,9 +47,12 @@ export async function GET() {
       progress: { rated: ratedContestants, total: totalContestants },
     });
 
-  const myVote = db.prepare(
-    'SELECT score FROM votes WHERE voter_id = ? AND session_id = ?'
-  ).get(userId, active.id) as any;
+  // 5. Fetch the user's personal active vote if it exists
+  const myVoteRes = await db.execute({
+    sql: 'SELECT score FROM votes WHERE voter_id = ? AND session_id = ?',
+    args: [userId, active.id]
+  });
+  const myVote = myVoteRes.rows as any;
 
   return NextResponse.json({
     votingEnabled: Boolean(user.voting_enabled),

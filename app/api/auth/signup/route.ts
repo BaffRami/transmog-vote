@@ -22,19 +22,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Password must be at least 4 characters' }, { status: 400 });
 
     const db = getDb();
-    if (db.prepare('SELECT id FROM users WHERE char_name = ?').get(name))
+    
+    // 1. Check if username exists using await
+    const userCheck = await db.execute({
+      sql: 'SELECT id FROM users WHERE char_name = ?',
+      args: [name]
+    });
+    if (userCheck.rows[0])
       return NextResponse.json({ error: 'Character name already registered' }, { status: 409 });
 
     const hash = await bcrypt.hash(password, 10);
 
     let code: string;
     let attempts = 0;
-    do {
+    
+    // 2. Loop rewritten to await unique code verification over the wire
+    while (true) {
       code = makeCode();
       if (++attempts > 50) throw new Error('Code generation failed');
-    } while (db.prepare('SELECT id FROM users WHERE code = ?').get(code));
+      
+      const codeCheck = await db.execute({
+        sql: 'SELECT id FROM users WHERE code = ?',
+        args: [code]
+      });
+      
+      if (!codeCheck.rows[0]) {
+        break; // Unique code found!
+      }
+    }
 
-    db.prepare('INSERT INTO users (char_name, password_hash, code) VALUES (?, ?, ?)').run(name, hash, code);
+    // 3. Final insert via await
+    await db.execute({
+      sql: 'INSERT INTO users (char_name, password_hash, code) VALUES (?, ?, ?)',
+      args: [name, hash, code]
+    });
+    
     return NextResponse.json({ charName: name, code }, { status: 201 });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || 'Server error' }, { status: 500 });

@@ -12,17 +12,35 @@ export async function GET() {
     const db = getDb();
 
     const userRes = await db.execute({
-      sql: 'SELECT voting_enabled FROM users WHERE id = ?',
+      sql: 'SELECT voting_enabled, revotes_remaining FROM users WHERE id = ?',
       args: [userId],
     });
     const user = userRes.rows[0] as any;
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    const revotesLeft = Number(user.revotes_remaining);
 
     const totalRes = await db.execute('SELECT COUNT(*) as c FROM users WHERE voting_enabled = 1');
     const totalContestants = Number((totalRes.rows[0] as any)?.c ?? 0);
 
     const ratedRes = await db.execute('SELECT COUNT(DISTINCT contestant_id) as c FROM voting_sessions');
     const ratedContestants = Number((ratedRes.rows[0] as any)?.c ?? 0);
+
+    const recapRes = await db.execute({
+      sql: `
+        SELECT u.char_name as contestant_name, v.score, v.revote_count
+        FROM votes v
+        JOIN voting_sessions vs ON vs.id = v.session_id
+        JOIN users u ON u.id = vs.contestant_id
+        WHERE v.voter_id = ?
+        ORDER BY v.voted_at DESC
+      `,
+      args: [userId],
+    });
+    const myRecap = recapRes.rows.map((r: any) => ({
+      contestant_name: r.contestant_name,
+      score: Number(r.score),
+      revote_count: Number(r.revote_count),
+    }));
 
     const activeRes = await db.execute(`
       SELECT vs.id, vs.contestant_id, u.char_name as contestant_name, vs.opened_at,
@@ -33,22 +51,28 @@ export async function GET() {
     `);
     const active = activeRes.rows[0] as any;
 
+    const progress = { rated: ratedContestants, total: totalContestants };
+
     if (!active)
       return NextResponse.json({
         session: null,
         votingEnabled: Boolean(user.voting_enabled),
-        progress: { rated: ratedContestants, total: totalContestants },
+        revotesLeft,
+        progress,
+        myRecap,
       });
 
     const myVoteRes = await db.execute({
-      sql: 'SELECT score FROM votes WHERE voter_id = ? AND session_id = ?',
+      sql: 'SELECT score, revote_count FROM votes WHERE voter_id = ? AND session_id = ?',
       args: [userId, active.id],
     });
     const myVote = myVoteRes.rows[0] as any;
 
     return NextResponse.json({
       votingEnabled: Boolean(user.voting_enabled),
-      progress: { rated: ratedContestants, total: totalContestants },
+      revotesLeft,
+      progress,
+      myRecap,
       session: {
         id: Number(active.id),
         contestantId: Number(active.contestant_id),
@@ -58,6 +82,7 @@ export async function GET() {
         isContestant: Number(active.contestant_id) === userId,
         alreadyVoted: Boolean(myVote),
         myScore: myVote ? Number(myVote.score) : null,
+        revotesLeft,
       },
     });
   } catch (e: any) {

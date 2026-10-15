@@ -1,57 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getSession } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 
 export async function POST(req: NextRequest) {
   try {
-    const { sessionId, voterName, score } = await req.json();
+    const session = await getSession();
+    if (!session || session.isAdmin)
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    if (!sessionId || !voterName?.trim() || !score) {
-      return NextResponse.json({ error: 'Missing required fields.' }, { status: 400 });
-    }
-    if (!Number.isInteger(score) || score < 1 || score > 10) {
-      return NextResponse.json({ error: 'Score must be 1–10.' }, { status: 400 });
-    }
+    const userId = Number(session.sub);
+    const { sessionId, score } = await req.json();
+
+    if (!sessionId || typeof score !== 'number' || score < 1 || score > 10)
+      return NextResponse.json({ error: 'Invalid score (must be 1–10)' }, { status: 400 });
 
     const db = getDb();
 
-    // 1. Fetch active session row via await
-    const sessionRes = await db.execute({
-      sql: `
-        SELECT vs.id, p.name AS player_name
-        FROM voting_sessions vs
-        JOIN players p ON p.id = vs.player_id
-        WHERE vs.id = ? AND vs.is_active = 1
-      `,
-      args: [sessionId]
+    const userRes = await db.execute({
+      sql: 'SELECT voting_enabled FROM users WHERE id = ?',
+      args: [userId],
     });
-    
-    // FIX: Grab the first element from the rows array
-    const session = sessionRes.rows[0] as any;
+    const user = userRes.rows[0] as any;
+    if (!user?.voting_enabled)
+      return NextResponse.json({ error: 'Voting not enabled for your account' }, { status: 403 });
 
-    // Now this condition works perfectly if no row is found!
-    if (!session) {
-      return NextResponse.json({ error: 'Voting session is not active.' }, { status: 400 });
-    }
-
-    if (voterName.trim().toLowerCase() === session.player_name.toLowerCase()) {
-      return NextResponse.json({ error: "You can't vote for yourself!" }, { status: 400 });
-    }
+    const activeRes = await db.execute({
+      sql: 'SELECT * FROM voting_sessions WHERE id = ? AND is_open = 1',
+      args: [sessionId],
+    });
+    const active = activeRes.rows[0] as any;
+    if (!active)
+      return NextResponse.json({ error: 'Session not found or already closed' }, { status: 404 });
+    if (Number(active.contestant_id) === userId)
+      return NextResponse.json({ error: "You can't vote for yourself" }, { status: 403 });
 
     try {
-      // 2. Insert vote via await
       await db.execute({
-        sql: 'INSERT INTO votes (session_id, voter_name, score) VALUES (?, ?, ?)',
-        args: [sessionId, voterName.trim(), score]
+        sql: 'INSERT INTO votes (voter_id, session_id, score) VALUES (?, ?, ?)',
+        args: [userId, sessionId, Math.round(score)],
       });
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ ok: true });
     } catch (e: any) {
-      if (e?.message?.includes('UNIQUE constraint') || e?.code?.includes('UNIQUE')) {
-        return NextResponse.json({ error: 'You already voted for this player!' }, { status: 400 });
-      }
+      if (e.message?.includes('UNIQUE') || e.code?.includes('UNIQUE'))
+        return NextResponse.json({ error: 'Already voted in this session' }, { status: 409 });
       throw e;
     }
   } catch (e: any) {
-    if (e?.message?.includes('already voted') || e?.message?.includes('not active')) throw e;
-    return NextResponse.json({ error: 'Server error.' }, { status: 500 });
+    return NextResponse.json({ error: e.message || 'Server error' }, { status: 500 });
   }
 }
